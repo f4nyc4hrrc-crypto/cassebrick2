@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Casse-Briques</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top, #1b3157, #080d18 65%);
+    color: white;
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#gameContainer {
+    width: min(950px, 96vw);
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+h1 {
+    margin: 0;
+    font-size: clamp(24px, 5vw, 38px);
+}
+
+.stats {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.stat {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    padding: 9px 13px;
+    border-radius: 10px;
+    font-weight: bold;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    background: #050914;
+    border: 2px solid #314563;
+    border-radius: 15px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    touch-action: none;
+}
+
+.controls {
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    color: #b8c5d8;
+    font-size: 14px;
+}
+
+button {
+    border: none;
+    border-radius: 9px;
+    padding: 10px 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    transform: translateY(-1px);
+}
+
+#overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.panel {
+    width: min(400px, 90vw);
+    padding: 30px;
+    text-align: center;
+    background: #111c2e;
+    border: 1px solid #405474;
+    border-radius: 20px;
+    box-shadow: 0 20px 70px #000;
+}
+
+.panel h2 {
+    font-size: 34px;
+    margin-top: 0;
+}
+
+.panel p {
+    color: #cbd5e1;
+    margin-bottom: 22px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="gameContainer">
+
+<header>
+    <h1>🧱 CASSE-BRIQUES</h1>
+
+    <div class="stats">
+        <div class="stat">
+            🏆 <span id="score">0</span>
+        </div>
+
+        <div class="stat">
+            🎯 Niveau <span id="level">1</span>
+        </div>
+
+        <div class="stat">
+            ❤️ <span id="lives">3</span>
+        </div>
+    </div>
+</header>
+
+<canvas id="game" width="900" height="560"></canvas>
+
+<div class="controls">
+    <span>
+        ← → / A D • Souris • Écran tactile • ESPACE pour lancer
+    </span>
+
+    <button onclick="restartGame()">
+        🔄 Recommencer
+    </button>
+</div>
+
+</div>
+
+<div id="overlay">
+    <div class="panel">
+
+        <h2 id="endTitle">
+            💥 Game Over
+        </h2>
+
+        <p id="endText">
+            Ton score : 0
+        </p>
+
+        <button onclick="restartGame()">
+            🎮 Rejouer
+        </button>
+
+    </div>
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+
+let score = 0;
+let level = 1;
+let lives = 3;
+
+let gameRunning = true;
+let ballLaunched = false;
+
+let keys = {};
+
+let bricks = [];
+let particles = [];
+
+let lastTime = 0;
+
+
+/* =========================
+   RAQUETTE
+========================= */
+
+const paddle = {
+    width: 135,
+    height: 16,
+    x: WIDTH / 2 - 67,
+    y: HEIGHT - 45,
+    speed: 650
+};
+
+
+/* =========================
+   BALLE
+========================= */
+
+const ball = {
+    x: WIDTH / 2,
+    y: paddle.y - 12,
+    radius: 9,
+
+    vx: 0,
+    vy: 0
+};
+
+
+/* =========================
+   INTERFACE
+========================= */
+
+const scoreDisplay =
+    document.getElementById("score");
+
+const levelDisplay =
+    document.getElementById("level");
+
+const livesDisplay =
+    document.getElementById("lives");
+
+const overlay =
+    document.getElementById("overlay");
+
+
+function updateInterface() {
+
+    scoreDisplay.textContent = score;
+    levelDisplay.textContent = level;
+    livesDisplay.textContent = lives;
+
+}
+
+
+/* =========================
+   CREATION DES BRIQUES
+========================= */
+
+function createLevel() {
+
+    bricks = [];
+
+    const rows = Math.min(4 + level, 9);
+    const columns = 10;
+
+    const gap = 7;
+    const side = 42;
+
+    const brickWidth =
+        (WIDTH - side * 2 - gap * (columns - 1))
+        / columns;
+
+    const brickHeight = 25;
+
+
+    for (let row = 0; row < rows; row++) {
+
+        for (let column = 0; column < columns; column++) {
+
+            /*
+             Certains niveaux deviennent
+             progressivement plus complexes.
+            */
+
+            if (
+                level >= 4 &&
+                (row + column + level) % 11 === 0
+            ) {
+                continue;
+            }
+
+
+            let hp = 1;
+
+            /*
+             À partir du niveau 5,
+             certaines briques demandent
+             deux coups.
+            */
+
+            if (level >= 5 && row < 2) {
+                hp = 2;
+            }
+
+
+            bricks.push({
+
+                x:
+                    side +
+                    column * (brickWidth + gap),
+
+                y:
+                    65 +
+                    row * (brickHeight + gap),
+
+                width: brickWidth,
+                height: brickHeight,
+
+                hp: hp,
+
+                alive: true
+
+            });
+
+        }
+
+    }
+
+}
+
+
+/* =========================
+   RESET BALLE
+========================= */
+
+function resetBall() {
+
+    ballLaunched = false;
+
+    ball.x =
+        paddle.x +
+        paddle.width / 2;
+
+    ball.y =
+        paddle.y -
+        ball.radius -
+        2;
+
+    ball.vx = 0;
+    ball.vy = 0;
+
+}
+
+
+/* =========================
+   LANCEMENT
+========================= */
+
+function launchBall() {
+
+    if (!gameRunning || ballLaunched) {
+        return;
+    }
+
+
+    ballLaunched = true;
+
+
+    const angle =
+        (Math.random() - 0.5) * 1.0;
+
+
+    const speed =
+        390 + (level - 1) * 28;
+
+
+    ball.vx =
+        Math.sin(angle) * speed;
+
+    ball.vy =
+        -Math.cos(angle) * speed;
+
+}
+
+
+/* =========================
+   PARTICULES
+========================= */
+
+function createParticles(x, y) {
+
+    for (let i = 0; i < 12; i++) {
+
+        const angle =
+            Math.random() * Math.PI * 2;
+
+        const speed =
+            60 + Math.random() * 180;
+
+
+        particles.push({
+
+            x: x,
+            y: y,
+
+            vx:
+                Math.cos(angle) * speed,
+
+            vy:
+                Math.sin(angle) * speed,
+
+            life:
+                0.4 + Math.random() * 0.3
+
+        });
+
+    }
+
+}
+
+
+/* =========================
+   COLLISION CERCLE / RECTANGLE
+========================= */
+
+function circleRectangleCollision(ball, rect) {
+
+    const closestX =
+        Math.max(
+            rect.x,
+            Math.min(ball.x, rect.x + rect.width)
+        );
+
+    const closestY =
+        Math.max(
+            rect.y,
+            Math.min(ball.y, rect.y + rect.height)
+        );
+
+
+    const dx =
+        ball.x - closestX;
+
+    const dy =
+        ball.y - closestY;
+
+
+    return (
+        dx * dx +
+        dy * dy
+        <=
+        ball.radius * ball.radius
+    );
+
+}
+
+
+/* =========================
+   PERTE D'UNE VIE
+========================= */
+
+function loseLife() {
+
+    lives--;
+
+    updateInterface();
+
+
+    if (lives <= 0) {
+
+        gameRunning = false;
+
+        document.getElementById("endTitle")
+            .textContent = "💥 GAME OVER";
+
+        document.getElementById("endText")
+            .textContent =
+            "Score final : " + score;
+
+        overlay.style.display = "flex";
+
+    }
+
+    else {
+
+        resetBall();
+
+    }
+
+}
+
+
+/* =========================
+   NIVEAU SUIVANT
+========================= */
+
+function nextLevel() {
+
+    level++;
+
+    score += 500;
+
+    createLevel();
+
+    resetBall();
+
+    updateInterface();
+
+}
+
+
+/* =========================
+   MISE À JOUR DU JEU
+========================= */
+
+function update(deltaTime) {
+
+    if (!gameRunning) {
+        return;
+    }
+
+
+    /*
+       Déplacement raquette
+    */
+
+    let direction = 0;
+
+
+    if (
+        keys["ArrowLeft"] ||
+        keys["a"] ||
+        keys["q"]
+    ) {
+        direction--;
+    }
+
+
+    if (
+        keys["ArrowRight"] ||
+        keys["d"]
+    ) {
+        direction++;
+    }
+
+
+    paddle.x +=
+        direction *
+        paddle.speed *
+        deltaTime;
+
+
+    paddle.x =
+        Math.max(
+            10,
+            Math.min(
+                WIDTH -
+                paddle.width -
+                10,
+
+                paddle.x
+            )
+        );
+
+
+    /*
+       Balle avant lancement
+    */
+
+    if (!ballLaunched) {
+
+        ball.x =
+            paddle.x +
+            paddle.width / 2;
+
+        ball.y =
+            paddle.y -
+            ball.radius -
+            2;
+
+    }
+
+
+    /*
+       Balle lancée
+    */
+
+    else {
+
+        ball.x +=
+            ball.vx *
+            deltaTime;
+
+        ball.y +=
+            ball.vy *
+            deltaTime;
+
+
+        /*
+           Mur gauche
+        */
+
+        if (
+            ball.x -
+            ball.radius <= 0
+        ) {
+
+            ball.x =
+                ball.radius;
+
+            ball.vx =
+                Math.abs(ball.vx);
+
+        }
+
+
+        /*
+           Mur droit
+        */
+
+        if (
+            ball.x +
+            ball.radius >= WIDTH
+        ) {
+
+            ball.x =
+                WIDTH -
+                ball.radius;
+
+            ball.vx =
+                -Math.abs(ball.vx);
+
+        }
+
+
+        /*
+           Mur supérieur
+        */
+
+        if (
+            ball.y -
+            ball.radius <= 0
+        ) {
+
+            ball.y =
+                ball.radius;
+
+            ball.vy =
+                Math.abs(ball.vy);
+
+        }
+
+
+        /*
+           Collision avec raquette
+        */
+
+        if (
+            ball.vy > 0 &&
+            circleRectangleCollision(ball, paddle)
+        ) {
+
+            ball.y =
+                paddle.y -
+                ball.radius -
+                1;
+
+
+            /*
+               L'endroit où la balle touche
+               la raquette détermine l'angle.
+            */
+
+            const hitPosition =
+                (
+                    ball.x -
+                    (paddle.x + paddle.width / 2)
+                )
+                /
+                (paddle.width / 2);
+
+
+            const angle =
+                hitPosition *
+                Math.PI *
+                0.40;
+
+
+            const speed =
+                Math.hypot(
+                    ball.vx,
+                    ball.vy
+                ) * 1.015;
+
+
+            ball.vx =
+                Math.sin(angle) * speed;
+
+            ball.vy =
+                -Math.cos(angle) * speed;
+
+        }
+
+
+        /*
+           Collision briques
+        */
+
+        for (const brick of bricks) {
+
+            if (!brick.alive) {
+                continue;
+            }
+
+
+            if (
+                circleRectangleCollision(
+                    ball,
+                    brick
+                )
+            ) {
+
+                /*
+                   Détermine si on touche
+                   le haut/bas ou le côté.
+                */
+
+                const previousX =
+                    ball.x -
+                    ball.vx * deltaTime;
+
+                const previousY =
+                    ball.y -
+                    ball.vy * deltaTime;
+
+
+                if (
+                    previousY +
+                    ball.radius <=
+                    brick.y
+                    ||
+                    previousY -
+                    ball.radius >=
+                    brick.y +
+                    brick.height
+                ) {
+
+                    ball.vy *= -1;
+
+                }
+
+                else {
+
+                    ball.vx *= -1;
+
+                }
+
+
+                brick.hp--;
+
+
+                if (brick.hp <= 0) {
+
+                    brick.alive = false;
+
+                    score += 100;
+
+                    createParticles(
+                        ball.x,
+                        ball.y
+                    );
+
+                }
+
+                else {
+
+                    score += 40;
+
+                }
+
+
+                updateInterface();
+
+                break;
+
+            }
+
+        }
+
+
+        /*
+           Balle tombée
+        */
+
+        if (
+            ball.y -
+            ball.radius >
+            HEIGHT
+        ) {
+
+            loseLife();
+
+        }
+
+
+        /*
+           Toutes les briques détruites
+        */
+
+        if (
+            bricks.every(
+                brick => !brick.alive
+            )
+        ) {
+
+            nextLevel();
+
+        }
+
+    }
+
+
+    /*
+       Mise à jour particules
+    */
+
+    for (const particle of particles) {
+
+        particle.x +=
+            particle.vx *
+            deltaTime;
+
+        particle.y +=
+            particle.vy *
+            deltaTime;
+
+        particle.vy +=
+            250 *
+            deltaTime;
+
+        particle.life -=
+            deltaTime;
+
+    }
+
+
+    particles =
+        particles.filter(
+            particle =>
+                particle.life > 0
+        );
+
+}
+
+
+/* =========================
+   DESSIN
+========================= */
+
+function draw() {
+
+    /*
+       Fond
+    */
+
+    const gradient =
+        ctx.createLinearGradient(
+            0,
+            0,
+            0,
+            HEIGHT
+        );
+
+
+    gradient.addColorStop(
+        0,
+        "#101b32"
+    );
+
+    gradient.addColorStop(
+        1,
+        "#050812"
+    );
+
+
+    ctx.fillStyle =
+        gradient;
+
+    ctx.fillRect(
+        0,
+        0,
+        WIDTH,
+        HEIGHT
+    );
+
+
+    /*
+       Petites étoiles
+    */
+
+    ctx.fillStyle =
+        "rgba(255,255,255,.18)";
+
+
+    for (
+        let i = 0;
+        i < 60;
+        i++
+    ) {
+
+        const starX =
+            (i * 173) % WIDTH;
+
+        const starY =
+            (i * 97) % HEIGHT;
+
+
+        ctx.fillRect(
+            starX,
+            starY,
+            1.5,
+            1.5
+        );
+
+    }
+
+
+    /*
+       BRIQUES
+    */
+
+    for (const brick of bricks) {
+
+        if (!brick.alive) {
+            continue;
+        }
+
+
+        const row =
+            Math.floor(
+                (brick.y - 65) / 32
+            );
+
+
+        let hue =
+            (row * 35 +
+             level * 20)
+            % 360;
+
+
+        if (brick.hp === 2) {
+
+            ctx.fillStyle =
+                "#e3a72f";
+
+        }
+
+        else {
+
+            ctx.fillStyle =
+                `hsl(${hue},78%,58%)`;
+
+        }
+
+
+        ctx.beginPath();
+
+        ctx.roundRect(
+            brick.x,
+            brick.y,
+            brick.width,
+            brick.height,
+            6
+        );
+
+        ctx.fill();
+
+
+        /*
+           Reflet
+        */
+
+        ctx.fillStyle =
+            "rgba(255,255,255,.25)";
+
+
+        ctx.beginPath();
+
+        ctx.roundRect(
+            brick.x + 2,
+            brick.y + 2,
+            brick.width - 4,
+            5,
+            3
+        );
+
+        ctx.fill();
+
+
+        /*
+           Brique résistante
+        */
+
+        if (brick.hp === 2) {
+
+            ctx.fillStyle =
+                "white";
+
+            ctx.font =
+                "bold 12px Arial";
+
+            ctx.textAlign =
+                "center";
+
+            ctx.fillText(
+                "2",
+                brick.x +
+                brick.width / 2,
+                brick.y + 18
+            );
+
+        }
+
+    }
+
+
+    /*
+       RAQUETTE
+    */
+
+    const paddleGradient =
+        ctx.createLinearGradient(
+            0,
+            paddle.y,
+            0,
+            paddle.y +
+            paddle.height
+        );
+
+
+    paddleGradient.addColorStop(
+        0,
+        "#ffffff"
+    );
+
+    paddleGradient.addColorStop(
+        1,
+        "#8c98aa"
+    );
+
+
+    ctx.fillStyle =
+        paddleGradient;
+
+
+    ctx.beginPath();
+
+    ctx.roundRect(
+        paddle.x,
+        paddle.y,
+        paddle.width,
+        paddle.height,
+        8
+    );
+
+    ctx.fill();
+
+
+    /*
+       BALLE
+    */
+
+    const ballGradient =
+        ctx.createRadialGradient(
+            ball.x - 3,
+            ball.y - 3,
+            1,
+            ball.x,
+            ball.y,
+            ball.radius
+        );
+
+
+    ballGradient.addColorStop(
+        0,
+        "#ffffff"
+    );
+
+    ballGradient.addColorStop(
+        1,
+        "#67e8f9"
+    );
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+        ball.x,
+        ball.y,
+        ball.radius,
+        0,
+        Math.PI * 2
+    );
+
+
+    ctx.fillStyle =
+        ballGradient;
+
+
+    ctx.shadowBlur = 20;
+    ctx.shadowColor =
+        "#67e8f9";
+
+
+    ctx.fill();
+
+
+    ctx.shadowBlur = 0;
+
+
+    /*
+       PARTICULES
+    */
+
+    for (const particle of particles) {
+
+        ctx.globalAlpha =
+            Math.max(
+                0,
+                particle.life / 0.7
+            );
+
+
+        ctx.fillStyle =
+            "#ffffff";
+
+
+        ctx.fillRect(
+            particle.x,
+            particle.y,
+            3,
+            3
+        );
+
+    }
+
+
+    ctx.globalAlpha = 1;
+
+
+    /*
+       Message de lancement
+    */
+
+    if (
+        !ballLaunched &&
+        gameRunning
+    ) {
+
+        ctx.fillStyle =
+            "rgba(255,255,255,.85)";
+
+        ctx.font =
+            "bold 17px Arial";
+
+        ctx.textAlign =
+            "center";
+
+        ctx.fillText(
+            "ESPACE / CLIC POUR LANCER",
+            WIDTH / 2,
+            HEIGHT - 90
+        );
+
+    }
+
+}
+
+
+/* =========================
+   BOUCLE PRINCIPALE
+========================= */
+
+function gameLoop(time) {
+
+    const deltaTime =
+        Math.min(
+            (time - lastTime) / 1000 || 0,
+            0.02
+        );
+
+
+    lastTime = time;
+
+
+    update(deltaTime);
+
+    draw();
+
+
+    requestAnimationFrame(
+        gameLoop
+    );
+
+}
+
+
+/* =========================
+   CLAVIER
+========================= */
+
+window.addEventListener(
+    "keydown",
+    event => {
+
+        keys[event.key] = true;
+
+
+        if (
+            event.code ===
+            "Space"
+        ) {
+
+            event.preventDefault();
+
+            launchBall();
+
+        }
+
+    }
+);
+
+
+window.addEventListener(
+    "keyup",
+    event => {
+
+        keys[event.key] = false;
+
+    }
+);
+
+
+/* =========================
+   SOURIS
+========================= */
+
+canvas.addEventListener(
+    "mousemove",
+    event => {
+
+        const rect =
+            canvas.getBoundingClientRect();
+
+
+        const mouseX =
+            (
+                event.clientX -
+                rect.left
+            )
+            *
+            WIDTH /
+            rect.width;
+
+
+        paddle.x =
+            mouseX -
+            paddle.width / 2;
+
+
+        paddle.x =
+            Math.max(
+                10,
+                Math.min(
+                    WIDTH -
+                    paddle.width -
+                    10,
+                    paddle.x
+                )
+            );
+
+    }
+);
+
+
+canvas.addEventListener(
+    "click",
+    launchBall
+);
+
+
+/* =========================
+   TACTILE
+========================= */
+
+canvas.addEventListener(
+    "touchmove",
+    event => {
+
+        event.preventDefault();
+
+
+        const rect =
+            canvas.getBoundingClientRect();
+
+
+        const touchX =
+            (
+                event.touches[0].clientX -
+                rect.left
+            )
+            *
+            WIDTH /
+            rect.width;
+
+
+        paddle.x =
+            touchX -
+            paddle.width / 2;
+
+
+        paddle.x =
+            Math.max(
+                10,
+                Math.min(
+                    WIDTH -
+                    paddle.width -
+                    10,
+                    paddle.x
+                )
+            );
+
+    },
+    { passive: false }
+);
+
+
+canvas.addEventListener(
+    "touchstart",
+    event => {
+
+        event.preventDefault();
+
+        launchBall();
+
+    },
+    { passive: false }
+);
+
+
+/* =========================
+   RECOMMENCER
+========================= */
+
+function restartGame() {
+
+    score = 0;
+    level = 1;
+    lives = 3;
+
+    gameRunning = true;
+
+    overlay.style.display =
+        "none";
+
+
+    paddle.x =
+        WIDTH / 2 -
+        paddle.width / 2;
+
+
+    createLevel();
+
+    resetBall();
+
+    updateInterface();
+
+}
+
+
+/* =========================
+   INITIALISATION
+========================= */
+
+createLevel();
+
+resetBall();
+
+updateInterface();
+
+requestAnimationFrame(
+    gameLoop
+);
+
+</script>
+
+</body>
+</html>
